@@ -4,8 +4,10 @@ use std::env;
 use std::thread::available_parallelism;
 use std::time::Instant;
 use tokio;
+use tokio::runtime::Runtime;
 
 const CPU_NUM_CALCS: &str = "CPU_NUM_CALCS";
+const CPU_NUM_ITERS: &str = "CPU_NUM_ITERS";
 const PRINT_WIDHT: usize = 50;
 
 fn factorial(num: u128) -> u128 {
@@ -85,44 +87,42 @@ fn run_rayon_threads(num_iters: u64, available_cores: u64, iter_per_core: &u64, 
   );
 }
 
-async fn run_tokio_threads(
-  num_iters: u64,
-  available_cores: u64,
-  iter_per_core: &u64,
-  total_calc: &f64,
-) {
-  println!("\nRunning in tokio threads...");
-  let now = Instant::now();
+fn run_tokio_threads(num_iters: u64, available_cores: u64, iter_per_core: &u64, total_calc: &f64) {
+  let rt = Runtime::new().unwrap();
+  rt.block_on(async {
+    println!("\nRunning in tokio threads...");
+    let now = Instant::now();
 
-  for _i in 0..num_iters {
-    let mut handles = Vec::new();
-    for _i in 0..available_cores {
-      let iter_per_core_clone = iter_per_core.clone();
+    for _i in 0..num_iters {
+      let mut handles = Vec::new();
+      for _i in 0..available_cores {
+        let iter_per_core_clone = iter_per_core.clone();
 
-      handles.push(tokio::spawn(
-        async move { add_one_loop(&iter_per_core_clone) },
-      ));
+        handles.push(tokio::spawn(
+          async move { add_one_loop(&iter_per_core_clone) },
+        ));
+      }
+
+      let _ = futures::future::try_join_all(handles).await.unwrap();
     }
-
-    let _ = futures::future::try_join_all(handles).await.unwrap();
-  }
-  let elapsed = now.elapsed();
-  let calc_per_sec: f64 = (total_calc) / (elapsed.as_secs() as f64);
-  println!(
-    "{:.<width$}{:.2?}",
-    "Total tokio threads runtime:",
-    elapsed,
-    width = PRINT_WIDHT
-  );
-  println!(
-    "{:.<width$}{:.2?}",
-    "Calculations in tokio threads per second:",
-    calc_per_sec,
-    width = PRINT_WIDHT
-  );
+    let elapsed = now.elapsed();
+    let calc_per_sec: f64 = (total_calc) / (elapsed.as_secs() as f64);
+    println!(
+      "{:.<width$}{:.2?}",
+      "Total tokio threads runtime:",
+      elapsed,
+      width = PRINT_WIDHT
+    );
+    println!(
+      "{:.<width$}{:.2?}",
+      "Calculations in tokio threads per second:",
+      calc_per_sec,
+      width = PRINT_WIDHT
+    );
+  });
 }
 
-pub async fn run_benchmark() {
+pub fn run_benchmark() {
   println!("\nRunning CPU benchmark test using factorial function");
   // Number of CPUs:
   println!("Number of available threads: {}", get_cpu_num());
@@ -132,7 +132,10 @@ pub async fn run_benchmark() {
     Err(_) => 10_000_00,
   };
 
-  let num_iters: u64 = 2000;
+  let num_iters: u64 = match env::var(CPU_NUM_ITERS) {
+    Ok(n) => n.parse::<u64>().unwrap_or(10_000_00),
+    Err(_) => 20000,
+  };
   let total_calc: u64 = num_calcs * num_iters;
   println!(
     "Running {} calculations over {} iterations each with a total of {} calculations.",
@@ -161,6 +164,5 @@ pub async fn run_benchmark() {
     available_cores,
     &iter_per_core,
     &(total_calc as f64),
-  )
-  .await;
+  );
 }
