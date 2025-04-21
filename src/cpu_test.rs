@@ -6,8 +6,8 @@ use std::time::Instant;
 use tokio;
 use tokio::runtime::Runtime;
 
-const CPU_NUM_CALCS: &str = "CPU_NUM_CALCS";
-const CPU_NUM_ITERS: &str = "CPU_NUM_ITERS";
+const CPU_NUM_CALCS_ENV: &str = "CPU_NUM_CALCS";
+const CPU_NUM_ITERS_ENV: &str = "CPU_NUM_ITERS";
 const PRINT_WIDHT: usize = 50;
 
 fn factorial(num: u128) -> u128 {
@@ -127,12 +127,12 @@ pub fn run_benchmark() {
   // Number of CPUs:
   println!("Number of available threads: {}", get_cpu_num());
 
-  let num_calcs = match env::var(CPU_NUM_CALCS) {
+  let num_calcs = match env::var(CPU_NUM_CALCS_ENV) {
     Ok(n) => n.parse::<u64>().unwrap_or(10_000_00),
     Err(_) => 10_000_00,
   };
 
-  let num_iters: u64 = match env::var(CPU_NUM_ITERS) {
+  let num_iters: u64 = match env::var(CPU_NUM_ITERS_ENV) {
     Ok(n) => n.parse::<u64>().unwrap_or(10_000_00),
     Err(_) => 20000,
   };
