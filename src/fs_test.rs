@@ -1,15 +1,19 @@
+use libc::{mmap, munmap};
 use std::env;
 use std::fs;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::MetadataExt;
+use std::ptr;
 use std::time::Instant;
 
 const MAX_FILE_SIZE_ENV: &str = "MAX_FILE_SIZE";
 const SEEK_SKIP_BYTES_ENV: &str = "SEEK_SKIP_BYTES";
 const READ_BYTES_ENV: &str = "READ_BYTES";
+const MMAP_READ_BYTES_ENV: &str = "MMAP_READ_BYTES";
 
 const WRITE_STRING: &str = "KDtBzffg%;K]r7D#3KcS1,UXZykBJb};v}Tp!q0B0@WU1f*hiaE1SUYExwSVhDXASHZV*.t$vGn2ph?+N=i=/KC?pT[=&Gwk+2:HS=tD!4V8rLD.aZ&TFV:nzMp/.}Qqp%fy)NP50B,,]*XrK4@$7&";
 const TEST_DIR: &str = "./fs_test";
@@ -125,13 +129,128 @@ fn seek_forward() {
   );
 }
 
+fn read_file_mmap() {
+  println!("\nRead file mmap...");
+  let mmap_read_bytes_raw = match env::var(MMAP_READ_BYTES_ENV) {
+    Ok(n) => n.parse::<u64>().unwrap_or(5_368_709_120),
+    Err(_) => 5_368_709_120,
+  };
+
+  let pages = mmap_read_bytes_raw / page_size() as u64;
+  let mmap_read_bytes = pages * page_size() as u64;
+
+  let file_descriptor = fs::File::open(format!("{}/{}", TEST_DIR, TEST_FILE)).unwrap();
+  let raw_desc = file_descriptor.as_raw_fd();
+
+  let mut current_batch = 1;
+
+  let file_size = file_descriptor.metadata().unwrap().size();
+  let now = Instant::now();
+  let mut hash_sum: u64 = 0;
+  let mut total_read = 0;
+
+  loop {
+    if total_read >= file_size {
+      break;
+    }
+
+    let len = if file_size - total_read < mmap_read_bytes as u64 {
+      file_size - total_read
+    } else {
+      mmap_read_bytes as u64
+    };
+
+    let ptr = unsafe {
+      mmap(
+        ptr::null_mut(),
+        len.try_into().unwrap(),
+        libc::PROT_READ,
+        libc::MAP_SHARED,
+        raw_desc,
+        total_read.try_into().unwrap(),
+      )
+    };
+
+    total_read += mmap_read_bytes as u64;
+
+    let mut data = unsafe { std::slice::from_raw_parts(ptr as *const u8, len.try_into().unwrap()) };
+
+    if current_batch == 1 {
+      // Check the correctness of the first 16 bytes read
+      let verify_buf = &data[0..15];
+      let str = String::from_utf8(verify_buf.to_vec()).unwrap();
+      assert_eq!(
+        str,
+        WRITE_STRING.to_string()[0..15],
+        "Invalid first 16 bytes of readed buffer"
+      );
+    }
+
+    let read_bytes = match env::var(READ_BYTES_ENV) {
+      Ok(v) => v.parse::<usize>().unwrap_or(1024),
+      Err(_) => 1024,
+    };
+    let mut buf = vec![0; read_bytes];
+    loop {
+      match data.read(&mut buf) {
+        Ok(n) => {
+          if n == 0 {
+            break;
+          }
+
+          hash_sum += buf[0] as u64;
+        }
+        Err(e) => panic!("{}", e),
+      }
+    }
+
+    unsafe {
+      munmap(ptr, len.try_into().unwrap());
+    }
+
+    current_batch += 1;
+  }
+
+  let elapsed = now.elapsed();
+  assert_eq!(hash_sum, get_hash_sum());
+  println!(
+    "{:.<width$}{:.2?}",
+    "Total read file runtime:",
+    elapsed,
+    width = PRINT_WIDHT
+  );
+}
+
+fn page_size() -> usize {
+  unsafe { libc::sysconf(libc::_SC_PAGESIZE) as usize }
+}
+
+fn get_hash_sum() -> u64 {
+  let mut file_descriptor = fs::File::open(format!("{}/{}", TEST_DIR, TEST_FILE)).unwrap();
+  let mut hash_sum: u64 = 0;
+  let mut buf = [0; 1024];
+  loop {
+    match file_descriptor.read(&mut buf) {
+      Ok(n) => {
+        if n == 0 {
+          break;
+        }
+        hash_sum += buf[0] as u64;
+      }
+      Err(e) => panic!("{}", e),
+    }
+  }
+
+  return hash_sum;
+}
+
 pub fn run_benchmark() {
   println!("\nRunning FS benchmark test");
   let _ = fs::remove_dir_all(TEST_DIR);
   fs::create_dir(TEST_DIR).unwrap();
-
   write_file();
   read_file();
   seek_forward();
+  read_file_mmap();
   fs::remove_dir_all(TEST_DIR).unwrap();
 }
