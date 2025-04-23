@@ -21,6 +21,12 @@ lazy_static! {
     Ok(n) => n.parse::<u32>().unwrap_or(20),
     Err(_) => 20,
   };
+  static ref CPU_MAX_THREADS: usize = match env::var("CPU_MAX_THREADS") {
+    Ok(n) => n
+      .parse::<usize>()
+      .unwrap_or(available_parallelism().unwrap().get()),
+    Err(_) => available_parallelism().unwrap().get(),
+  };
 }
 
 const PRINT_WIDHT: usize = 50;
@@ -39,7 +45,7 @@ fn add_one_loop(&n_loops: &u64) -> u128 {
 }
 
 fn get_cpu_num() -> usize {
-  available_parallelism().unwrap().get()
+  *CPU_MAX_THREADS
 }
 
 fn run_native_threads(
