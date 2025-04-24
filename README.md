@@ -45,7 +45,7 @@ Required args:
 - MAX_THREADS= 
 - SGX_MODE= SIM or HW
 
-Env for test are stored in `Occlum.json` .env.default.
+Env for tests are stored in `Occlum.json` `.env.default`.
 
 ```bash
 docker build --build-arg HEAP=8GB --build-arg KERNEL_HEAP=512MB --build-arg MAX_THREADS=64 --build-arg DEBUG=false --build-arg SGX_MODE=SIM -t bench-occl -f Dockerfile.occlum .
